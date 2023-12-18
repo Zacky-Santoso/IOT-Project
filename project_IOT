@@ -1,0 +1,145 @@
+#include <DHT.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <ESP8266WiFi.h>
+#include "secrets.h"
+#include "ThingSpeak.h"
+#include <SPI.h>
+#include "SD.h"
+
+#define DHTPIN D3   // Using pin D3 to connect to DHT11 data pin
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+// Initialize LCD I2C
+LiquidCrystal_I2C lcd(0x27, 16, 2);  // I2C address may vary depending on your LCD module
+
+char ssid[] = SECRET_SSID;   // your network SSID (name) 
+char pass[] = SECRET_PASS;   // your network password
+int keyIndex = 0;            // your network key Index number (needed only for WEP)
+WiFiClient  client;
+
+unsigned long myChannelNumber = SECRET_CH_ID;
+const char * myWriteAPIKey = SECRET_WRITE_APIKEY;
+
+// Initialize values
+float suhu = 0;
+float kelembapan = 0;
+String myStatus = "";
+
+const int chipSelect = D8;
+
+void setup() {
+  Serial.begin(115200);  // Serial communication at 115200 bps
+  WiFi.mode(WIFI_STA);
+  ThingSpeak.begin(client);  // Initialize ThingSpeak
+  dht.begin();
+
+  // Initialize LCD
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0,0);
+  lcd.print("TEAM IOT Zacky");
+  lcd.setCursor(0,1);
+  lcd.print("Azel &  Daniel");
+  delay(5000);
+  lcd.setCursor(0,0);
+  lcd.print("                ");
+  lcd.setCursor(0,1);
+  lcd.print("                ");
+  delay(2000);
+  lcd.setCursor(0,0);
+  lcd.print("SISTEM PENGUKUR");
+  lcd.setCursor(0,1);
+  lcd.print("TEMPT & HUMID");
+  delay(5000);
+  lcd.setCursor(0,0);
+  lcd.print("                ");
+  lcd.setCursor(0,1);
+  lcd.print("                ");
+  delay(2000);
+  lcd.setCursor(0, 0);
+  lcd.print("TEMPT   :");
+  lcd.setCursor(0, 1);
+  lcd.print("HUMIDITY:");
+
+  Serial.print("Initializing SD card...");
+
+  if (!SD.begin(chipSelect)) {
+    Serial.println("Card failed, or not present");
+    return;
+  }
+  Serial.println("card initialized.");
+}
+
+void loop() {
+  delay(5000);
+
+  float TEMPT = dht.readTemperature();
+  float HUMIDITY = dht.readHumidity();
+
+  if (isnan(TEMPT) || isnan(HUMIDITY)) {
+    Serial.println("Failed to read data from the DHT sensor");
+    return;
+  }
+
+  Serial.print(" Current Temperature: ");
+  Serial.print(TEMPT);
+  Serial.print(" °C |  Humidity: ");
+  Serial.print(HUMIDITY);
+  Serial.println("%");
+
+  lcd.setCursor(10, 0);
+  lcd.print(TEMPT);
+  lcd.setCursor(15, 0);
+  lcd.print("C");
+  lcd.setCursor(10, 1);
+  lcd.print(HUMIDITY);
+  lcd.setCursor(15, 1);
+  lcd.print("%");
+
+  String dataString = String(TEMPT) + "," + String(HUMIDITY);
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.print("Attempting to connect to SSID: ");
+    Serial.println(SECRET_SSID);
+    while (WiFi.status() != WL_CONNECTED) {
+      WiFi.begin(ssid, pass);
+      Serial.print(".");
+      delay(5000);
+    }
+    Serial.println("\nConnected.");
+  }
+
+  suhu = TEMPT;
+  kelembapan = HUMIDITY;
+
+  ThingSpeak.setField(1, suhu);
+  ThingSpeak.setField(2, kelembapan);
+  ThingSpeak.setStatus(myStatus);
+
+  int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+  if (x == 200) {
+    Serial.println("Channel update successful.");
+  } else {
+    Serial.println("Problem updating channel. HTTP error code " + String(x));
+  }
+
+  File dataFile = SD.open("data.txt", FILE_WRITE);
+
+  if (dataFile) {
+    dataFile.println(dataString);
+    dataFile.close();
+    Serial.println(dataString);
+  } else {
+    Serial.println("Error opening datalog.txt");
+  }
+
+  Serial.print("Temperature: ");
+  Serial.print(suhu);
+  Serial.print(" °C | Humidity: ");
+  Serial.print(kelembapan);
+  Serial.println("%");
+  delay(5000);
+}
+
